@@ -8,8 +8,20 @@ import { isFeatured } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/server"
 
 async function getListings() {
+  // Always return mock data with seller info
+  const getMockListings = () => mockListings.map(listing => ({
+    ...listing,
+    seller: mockSellers.find(s => s.id === listing.sellerId)
+  }))
+  
   try {
     const supabase = await createClient()
+    
+    // If Supabase is not configured, return mock data
+    if (!supabase) {
+      return getMockListings()
+    }
+    
     const { data: listings, error } = await supabase
       .from("listings")
       .select(`
@@ -21,11 +33,7 @@ async function getListings() {
       .limit(20)
     
     if (error || !listings || listings.length === 0) {
-      // Fallback to mock data
-      return mockListings.map(listing => ({
-        ...listing,
-        seller: mockSellers.find(s => s.id === listing.sellerId)
-      }))
+      return getMockListings()
     }
     
     return listings.map(listing => ({
@@ -39,12 +47,9 @@ async function getListings() {
         shopName: listing.seller.shop_name,
       } : null
     }))
-  } catch {
-    // Fallback to mock data
-    return mockListings.map(listing => ({
-      ...listing,
-      seller: mockSellers.find(s => s.id === listing.sellerId)
-    }))
+  } catch (e) {
+    console.log("[v0] Error fetching listings:", e)
+    return getMockListings()
   }
 }
 
