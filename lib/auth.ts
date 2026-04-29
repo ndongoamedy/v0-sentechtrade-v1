@@ -22,7 +22,7 @@ export async function getSessionAsync(): Promise<AuthSession | null> {
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', session.user.id)
+    .eq('user_id', session.user.id)
     .single()
   
   if (!profile) return null
@@ -98,7 +98,7 @@ export async function loginAsync(email: string, password: string): Promise<{ suc
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', data.user.id)
+    .eq('user_id', data.user.id)
     .single()
   
   const user: User = {
@@ -172,13 +172,12 @@ export async function registerAsync(data: {
   
   // Try to insert profile (trigger might have done it already)
   await supabase.from('profiles').upsert({
-    id: authData.user.id,
-    email: data.email,
+    user_id: authData.user.id,
     name: data.name,
     phone: data.phone,
     city: data.city || 'Dakar',
     role: role,
-  }, { onConflict: 'id' })
+  }, { onConflict: 'user_id' })
   
   // If email confirmation is required, we won't have a session yet
   if (!authData.session) {
@@ -248,6 +247,12 @@ export function getCurrentUser(): User | null {
   return session?.user || null
 }
 
+// Get current Supabase user (async)
+export async function getSupabaseUser(): Promise<User | null> {
+  const session = await getSessionAsync()
+  return session?.user || null
+}
+
 // Check if user has specific role
 export function hasRole(role: UserRole): boolean {
   const user = getCurrentUser()
@@ -266,7 +271,7 @@ export async function updateUserAsync(updatedUser: User, newPassword?: string): 
       phone: updatedUser.phone,
       city: updatedUser.city,
     })
-    .eq('id', updatedUser.id)
+    .eq('user_id', updatedUser.id)
   
   // Update password if provided
   if (newPassword) {

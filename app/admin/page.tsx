@@ -400,28 +400,39 @@ return (
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Type</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Client</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Vendeur</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Téléphone</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Statut</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm text-gray-700">{formatDate(new Date())}</td>
+                      {leads.length > 0 ? leads.map((lead) => (
+                        <tr key={lead.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-700">{formatDate(lead.createdAt)}</td>
                           <td className="px-4 py-3 text-sm">
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">
-                              {i % 2 === 0 ? "Achat" : "Échange"}
+                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                              lead.type === "BUY" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
+                            }`}>
+                              {lead.type === "BUY" ? "Achat" : "Échange"}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">Client {i}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700">Digital World</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{lead.client_name}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{lead.client_phone}</td>
                           <td className="px-4 py-3 text-sm">
-                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">
-                              Répondu
+                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                              lead.status === "NEW" ? "bg-yellow-100 text-yellow-700" : 
+                              lead.status === "REPLIED" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
+                            }`}>
+                              {lead.status === "NEW" ? "Nouveau" : lead.status === "REPLIED" ? "Répondu" : "Traité"}
                             </span>
                           </td>
                         </tr>
-                      ))}
+                      )) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                            Aucun lead pour le moment
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
