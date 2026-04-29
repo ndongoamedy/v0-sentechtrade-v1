@@ -5,23 +5,139 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Users, Package, MessageSquare, AlertCircle, LogOut, Check, X, Info } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { mockListings } from "@/lib/data"
+import { mockListings, mockSellers } from "@/lib/data"
 import { formatPrice, formatDate } from "@/lib/utils"
-import { logout, getCurrentUser } from "@/lib/auth"
+import { logout, getCurrentUser, getSupabaseUser } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/client"
 
 export default function AdminDashboardPage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<"applications" | "listings" | "leads">("applications")
   const [currentUser, setCurrentUser] = useState<ReturnType<typeof getCurrentUser>>(null)
+  const [listings, setListings] = useState<any[]>([])
+  const [applications, setApplications] = useState<any[]>([])
+  const [leads, setLeads] = useState<any[]>([])
+  const [stats, setStats] = useState({ sellers: 4, listings: 0, leads: 45, pending: 0 })
 
   useEffect(() => {
-    const user = getCurrentUser()
-    if (!user || user.role !== "ADMIN") {
-      router.push("/auth/login")
-      return
+    async function checkAuth() {
+      // Try Supabase auth first
+      const supabaseUser = await getSupabaseUser()
+      if (supabaseUser && supabaseUser.role === "ADMIN") {
+        setCurrentUser(supabaseUser)
+        loadData()
+        return
+      }
+      
+      // Fallback to mock auth
+      const user = getCurrentUser()
+      if (!user || user.role !== "ADMIN") {
+        router.push("/auth/login")
+        return
+      }
+      setCurrentUser(user)
+      loadMockData()
     }
-    setCurrentUser(user)
+    checkAuth()
   }, [router])
+
+  async function loadData() {
+    try {
+      const supabase = createClient()
+      
+      // Load listings
+      const { data: listingsData } = await supabase
+        .from("listings")
+        .select(`*, seller:sellers(*)`)
+        .order("created_at", { ascending: false })
+        .limit(20)
+      
+      if (listingsData) {
+        setListings(listingsData.map(l => ({
+          ...l,
+          priceCFA: l.price_cfa,
+          createdAt: new Date(l.created_at),
+          seller: l.seller ? { ...l.seller, shopName: l.seller.shop_name } : null
+        })))
+        setStats(s => ({ ...s, listings: listingsData.length }))
+      } else {
+        loadMockData()
+      }
+      
+      // Load applications
+      const { data: appsData } = await supabase
+        .from("seller_applications")
+        .select("*")
+        .eq("status", "PENDING_REVIEW")
+        .order("created_at", { ascending: false })
+      
+      if (appsData) {
+        setApplications(appsData.map(a => ({
+          ...a,
+          shopName: a.shop_name,
+          createdAt: new Date(a.created_at)
+        })))
+        setStats(s => ({ ...s, pending: appsData.length }))
+      }
+      
+      // Load leads
+      const { data: leadsData } = await supabase
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20)
+      
+      if (leadsData) {
+        setLeads(leadsData.map(l => ({
+          ...l,
+          createdAt: new Date(l.created_at)
+        })))
+        setStats(s => ({ ...s, leads: leadsData.length }))
+      }
+      
+      // Count sellers
+      const { count } = await supabase
+        .from("sellers")
+        .select("*", { count: "exact", head: true })
+      
+      if (count) {
+        setStats(s => ({ ...s, sellers: count }))
+      }
+    } catch {
+      loadMockData()
+    }
+  }
+
+  function loadMockData() {
+    setListings(mockListings.map(l => ({
+      ...l,
+      seller: mockSellers.find(s => s.id === l.sellerId)
+    })))
+    setStats({
+      sellers: mockSellers.length,
+      listings: mockListings.length,
+      leads: 45,
+      pending: 2
+    })
+    setApplications([
+      {
+        id: "1",
+        shopName: "Tech Store Dakar",
+        whatsapp: "+221 77 999 88 77",
+        city: "Dakar",
+        status: "PENDING_REVIEW",
+        createdAt: new Date("2025-01-28"),
+      },
+      {
+        id: "2",
+        shopName: "Mobile Plus",
+        whatsapp: "+221 77 888 77 66",
+        city: "Thiès",
+        status: "PENDING_REVIEW",
+        createdAt: new Date("2025-01-27"),
+      },
+    ])
+  }
 
   const handleLogout = () => {
     logout()
@@ -66,27 +182,7 @@ export default function AdminDashboardPage() {
     router.push(`/product/${listingId}`)
   }
 
-  // Mock data
-  const applications = [
-    {
-      id: "1",
-      shopName: "Tech Store Dakar",
-      whatsapp: "+221 77 999 88 77",
-      city: "Dakar",
-      status: "PENDING_REVIEW",
-      createdAt: new Date("2025-01-28"),
-    },
-    {
-      id: "2",
-      shopName: "Mobile Plus",
-      whatsapp: "+221 77 888 77 66",
-      city: "Thiès",
-      status: "PENDING_REVIEW",
-      createdAt: new Date("2025-01-27"),
-    },
-  ]
-
-  return (
+return (
     <div className="min-h-screen bg-gray-50">
       <Header />
 
@@ -113,7 +209,7 @@ export default function AdminDashboardPage() {
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">4</div>
+                <div className="text-2xl font-bold text-gray-900">{stats.sellers}</div>
                 <div className="text-sm text-gray-600">Vendeurs actifs</div>
               </div>
             </div>
@@ -125,7 +221,7 @@ export default function AdminDashboardPage() {
                 <Package className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{mockListings.length}</div>
+                <div className="text-2xl font-bold text-gray-900">{stats.listings}</div>
                 <div className="text-sm text-gray-600">Annonces publiées</div>
               </div>
             </div>
@@ -137,7 +233,7 @@ export default function AdminDashboardPage() {
                 <MessageSquare className="w-6 h-6 text-orange-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">45</div>
+                <div className="text-2xl font-bold text-gray-900">{stats.leads}</div>
                 <div className="text-sm text-gray-600">Leads ce mois</div>
               </div>
             </div>
@@ -149,7 +245,7 @@ export default function AdminDashboardPage() {
                 <AlertCircle className="w-6 h-6 text-yellow-600" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-gray-900">{applications.length}</div>
+                <div className="text-2xl font-bold text-gray-900">{stats.pending}</div>
                 <div className="text-sm text-gray-600">En attente</div>
               </div>
             </div>
@@ -243,7 +339,7 @@ export default function AdminDashboardPage() {
               <div>
                 <h2 className="text-xl font-bold text-gray-900 mb-6">Toutes les annonces</h2>
                 <div className="space-y-4">
-                  {mockListings.slice(0, 5).map((listing) => (
+                  {listings.slice(0, 10).map((listing) => (
                     <div key={listing.id} className="border rounded-lg p-4">
                       <div className="flex gap-4">
                         <img

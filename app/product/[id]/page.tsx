@@ -6,14 +6,58 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ChatWidgetProvider } from "@/components/chat-widget-provider"
 import { MapPin, Star, Phone, CheckCircle2, ArrowLeft } from "lucide-react"
-import { mockListings } from "@/lib/data"
+import { mockListings, mockSellers } from "@/lib/data"
 import { formatPrice, formatDate } from "@/lib/utils"
 import { buildWhatsAppLink } from "@/lib/whatsapp"
+import { createClient } from "@/lib/supabase/server"
+
+async function getListing(id: string) {
+  try {
+    const supabase = await createClient()
+    const { data: listing, error } = await supabase
+      .from("listings")
+      .select(`
+        *,
+        seller:sellers(*)
+      `)
+      .eq("id", id)
+      .single()
+    
+    if (error || !listing) {
+      // Fallback to mock data
+      const mockListing = mockListings.find((l) => l.id === id)
+      if (mockListing) {
+        const seller = mockSellers.find(s => s.id === mockListing.sellerId)
+        return { ...mockListing, seller }
+      }
+      return null
+    }
+    
+    return {
+      ...listing,
+      priceCFA: listing.price_cfa,
+      allowExchange: listing.allow_exchange,
+      createdAt: new Date(listing.created_at),
+      seller: listing.seller ? {
+        ...listing.seller,
+        shopName: listing.seller.shop_name,
+      } : null
+    }
+  } catch {
+    // Fallback to mock data
+    const mockListing = mockListings.find((l) => l.id === id)
+    if (mockListing) {
+      const seller = mockSellers.find(s => s.id === mockListing.sellerId)
+      return { ...mockListing, seller }
+    }
+    return null
+  }
+}
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
-  const listing = mockListings.find((l) => l.id === id)
+  const listing = await getListing(id)
 
   if (!listing) {
     return (

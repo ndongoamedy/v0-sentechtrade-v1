@@ -3,17 +3,61 @@ import { Search, RefreshCw, ChevronDown } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ProductCard } from "@/components/product-card"
-import { mockListings } from "@/lib/data"
+import { mockListings, mockSellers } from "@/lib/data"
 import { isFeatured } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/server"
 
-export default function HomePage() {
+async function getListings() {
+  try {
+    const supabase = await createClient()
+    const { data: listings, error } = await supabase
+      .from("listings")
+      .select(`
+        *,
+        seller:sellers(*)
+      `)
+      .eq("status", "PUBLISHED")
+      .order("created_at", { ascending: false })
+      .limit(20)
+    
+    if (error || !listings || listings.length === 0) {
+      // Fallback to mock data
+      return mockListings.map(listing => ({
+        ...listing,
+        seller: mockSellers.find(s => s.id === listing.sellerId)
+      }))
+    }
+    
+    return listings.map(listing => ({
+      ...listing,
+      priceCFA: listing.price_cfa,
+      allowExchange: listing.allow_exchange,
+      createdAt: new Date(listing.created_at),
+      featuredUntil: listing.featured_until ? new Date(listing.featured_until) : undefined,
+      seller: listing.seller ? {
+        ...listing.seller,
+        shopName: listing.seller.shop_name,
+      } : null
+    }))
+  } catch {
+    // Fallback to mock data
+    return mockListings.map(listing => ({
+      ...listing,
+      seller: mockSellers.find(s => s.id === listing.sellerId)
+    }))
+  }
+}
+
+export default async function HomePage() {
+  const allListings = await getListings()
+  
   // Featured listings (boosted)
-  const featuredListings = mockListings.filter(isFeatured).slice(0, 4)
+  const featuredListings = allListings.filter(isFeatured).slice(0, 4)
 
   // Recent listings
-  const recentListings = mockListings
-    .filter((l) => l.status === "PUBLISHED")
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  const recentListings = allListings
+    .filter((l: any) => l.status === "PUBLISHED")
+    .sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, 4)
 
   return (
