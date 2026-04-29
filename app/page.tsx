@@ -3,24 +3,12 @@ import { Search, RefreshCw, ChevronDown } from "lucide-react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ProductCard } from "@/components/product-card"
-import { mockListings, mockSellers } from "@/lib/data"
 import { isFeatured } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/server"
 
 async function getListings() {
-  // Always return mock data with seller info
-  const getMockListings = () => mockListings.map(listing => ({
-    ...listing,
-    seller: mockSellers.find(s => s.id === listing.sellerId)
-  }))
-  
   try {
     const supabase = await createClient()
-    
-    // If Supabase is not configured, return mock data
-    if (!supabase) {
-      return getMockListings()
-    }
     
     const { data: listings, error } = await supabase
       .from("listings")
@@ -32,24 +20,44 @@ async function getListings() {
       .order("created_at", { ascending: false })
       .limit(20)
     
-    if (error || !listings || listings.length === 0) {
-      return getMockListings()
+    if (error) {
+      console.error("[Supabase] Error fetching listings:", error)
+      return []
     }
     
-    return listings.map(listing => ({
-      ...listing,
+    return (listings || []).map(listing => ({
+      id: listing.id,
+      sellerId: listing.seller_id,
+      title: listing.title,
+      model: listing.model,
+      capacity: listing.capacity,
+      color: listing.color,
+      condition: listing.condition,
       priceCFA: listing.price_cfa,
+      city: listing.city,
+      photos: listing.photos || [],
+      description: listing.description,
       allowExchange: listing.allow_exchange,
-      createdAt: new Date(listing.created_at),
+      status: listing.status,
       featuredUntil: listing.featured_until ? new Date(listing.featured_until) : undefined,
+      createdAt: new Date(listing.created_at),
+      updatedAt: new Date(listing.updated_at),
       seller: listing.seller ? {
-        ...listing.seller,
+        id: listing.seller.id,
+        userId: listing.seller.user_id,
         shopName: listing.seller.shop_name,
-      } : null
+        whatsapp: listing.seller.whatsapp,
+        city: listing.seller.city,
+        logo: listing.seller.logo,
+        description: listing.seller.description,
+        verified: listing.seller.verified,
+        rating: listing.seller.rating,
+        createdAt: new Date(listing.seller.created_at),
+      } : undefined
     }))
   } catch (e) {
-    console.log("[v0] Error fetching listings:", e)
-    return getMockListings()
+    console.error("[Supabase] Error fetching listings:", e)
+    return []
   }
 }
 

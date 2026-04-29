@@ -6,7 +6,6 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ChatWidgetProvider } from "@/components/chat-widget-provider"
 import { MapPin, Star, Phone, CheckCircle2, ArrowLeft } from "lucide-react"
-import { mockListings, mockSellers } from "@/lib/data"
 import { formatPrice, formatDate } from "@/lib/utils"
 import { buildWhatsAppLink } from "@/lib/whatsapp"
 import { createClient } from "@/lib/supabase/server"
@@ -24,32 +23,39 @@ async function getListing(id: string) {
       .single()
     
     if (error || !listing) {
-      // Fallback to mock data
-      const mockListing = mockListings.find((l) => l.id === id)
-      if (mockListing) {
-        const seller = mockSellers.find(s => s.id === mockListing.sellerId)
-        return { ...mockListing, seller }
-      }
       return null
     }
     
     return {
-      ...listing,
+      id: listing.id,
+      sellerId: listing.seller_id,
+      title: listing.title,
+      model: listing.model,
+      capacity: listing.capacity,
+      color: listing.color,
+      condition: listing.condition,
       priceCFA: listing.price_cfa,
+      city: listing.city,
+      photos: listing.photos || [],
+      description: listing.description,
       allowExchange: listing.allow_exchange,
+      status: listing.status,
       createdAt: new Date(listing.created_at),
       seller: listing.seller ? {
-        ...listing.seller,
+        id: listing.seller.id,
+        userId: listing.seller.user_id,
         shopName: listing.seller.shop_name,
-      } : null
+        whatsapp: listing.seller.whatsapp,
+        city: listing.seller.city,
+        logo: listing.seller.logo,
+        description: listing.seller.description,
+        verified: listing.seller.verified,
+        rating: listing.seller.rating,
+        createdAt: new Date(listing.seller.created_at),
+      } : undefined
     }
-  } catch {
-    // Fallback to mock data
-    const mockListing = mockListings.find((l) => l.id === id)
-    if (mockListing) {
-      const seller = mockSellers.find(s => s.id === mockListing.sellerId)
-      return { ...mockListing, seller }
-    }
+  } catch (e) {
+    console.error("[Supabase] Error fetching listing:", e)
     return null
   }
 }
@@ -77,7 +83,36 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   return <ProductDetailClient listing={listing} />
 }
 
-function ProductDetailClient({ listing }: { listing: (typeof mockListings)[0] }) {
+interface ListingData {
+  id: string
+  sellerId: string
+  title: string
+  model: string
+  capacity: string
+  color: string
+  condition: string
+  priceCFA: number
+  city: string
+  photos: string[]
+  description: string | null
+  allowExchange: boolean
+  status: string
+  createdAt: Date
+  seller?: {
+    id: string
+    userId: string
+    shopName: string
+    whatsapp: string
+    city: string
+    logo: string | null
+    description: string | null
+    verified: boolean
+    rating: number | null
+    createdAt: Date
+  }
+}
+
+function ProductDetailClient({ listing }: { listing: ListingData }) {
   const searchParams = useSearchParams()
   const action = searchParams.get("action")
 

@@ -6,11 +6,11 @@ import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { useRouter } from "next/navigation"
-import { getCurrentUser } from "@/lib/auth"
+import { initializeAuth } from "@/lib/auth"
 import { iPhoneModels, capacities, conditions, colors, cities } from "@/lib/data"
-import { mockListings } from "@/lib/data"
-import type { iPhoneModel, Capacity, Condition, Color } from "@/lib/types"
-import { ArrowLeft, Upload, X } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import type { iPhoneModel, Capacity, Condition, Color, Seller, User } from "@/lib/types"
+import { ArrowLeft, Upload, X, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 // Function to get valid capacities based on the selected model
@@ -28,8 +28,11 @@ const getValidCapacities = (model: iPhoneModel): Capacity[] => {
 
 export default function NewListingPage() {
   const router = useRouter()
-  const [currentUser, setCurrentUser] = useState<ReturnType<typeof getCurrentUser>>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [seller, setSeller] = useState<Seller | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Form state
   const [model, setModel] = useState<iPhoneModel>("iPhone 15 Pro")
@@ -45,13 +48,48 @@ export default function NewListingPage() {
   // State for valid capacities based on selected model
   const [validCapacities, setValidCapacities] = useState<Capacity[]>([])
 
+  // Initialize auth and get seller data
   useEffect(() => {
-    const user = getCurrentUser()
-    if (!user || user.role !== "SELLER") {
-      router.push("/auth/login")
-      return
+    const init = async () => {
+      const session = await initializeAuth()
+      if (!session || (session.user.role !== "SELLER" && session.user.role !== "ADMIN")) {
+        router.push("/auth/login")
+        return
+      }
+      setCurrentUser(session.user)
+
+      // Get seller profile
+      const supabase = createClient()
+      const { data: sellerData } = await supabase
+        .from('sellers')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .single()
+
+      if (sellerData) {
+        setSeller({
+          id: sellerData.id,
+          userId: sellerData.user_id,
+          shopName: sellerData.shop_name,
+          city: sellerData.city,
+          whatsapp: sellerData.whatsapp,
+          logo: sellerData.logo,
+          description: sellerData.description,
+          verified: sellerData.verified,
+          rating: sellerData.rating,
+          createdAt: new Date(sellerData.created_at),
+        })
+        setCity(sellerData.city) // Default to seller's city
+      } else {
+        // No seller profile, redirect to create one
+        router.push("/seller/profile/new")
+        return
+      }
+
+      setIsInitialized(true)
     }
-    setCurrentUser(user)
+
+    init()
   }, [router])
 
   useEffect(() => {

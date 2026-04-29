@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { RefreshCw, CheckCircle2 } from "lucide-react"
-import { iPhoneModels, capacities, conditions, cities, mockListings } from "@/lib/data"
+import { iPhoneModels, capacities, conditions, cities } from "@/lib/data"
 import type { iPhoneModel, Capacity, Condition, ExchangeDetails, PhoneConditionDetails } from "@/lib/types"
 import { buildWhatsAppLink, formatExchangeMessage } from "@/lib/whatsapp"
 import { PhotoUploadStep } from "@/components/photo-upload-step"
@@ -18,11 +18,28 @@ const getValidCapacities = (model: iPhoneModel): Capacity[] => {
   return capacities
 }
 
+interface ListingData {
+  id: string
+  sellerId: string
+  title: string
+  model: string
+  capacity: string
+  condition: string
+  priceCFA: number
+  seller?: {
+    id: string
+    whatsapp: string
+    shopName: string
+  }
+}
+
 export default function ExchangePage() {
   const searchParams = useSearchParams()
   const listingId = searchParams.get("listing")
 
   const [currentStep, setCurrentStep] = useState<Step>(1)
+  const [targetListing, setTargetListing] = useState<ListingData | null>(null)
+  const [loadingListing, setLoadingListing] = useState(false)
 
   // Step 1: Mon iPhone actuel
   const [currentModel, setCurrentModel] = useState<iPhoneModel | "">("")
@@ -74,13 +91,20 @@ export default function ExchangePage() {
   // Pre-fill desired product if coming from a listing
   useEffect(() => {
     if (listingId) {
-      const listing = mockListings.find((l) => l.id === listingId)
-      if (listing) {
-        setDesiredModel(listing.model)
-        setDesiredCapacity(listing.capacity)
-        setMinCondition(listing.condition)
-        setCurrentStep(1)
-      }
+      setLoadingListing(true)
+      fetch(`/api/listings/${listingId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.listing) {
+            setTargetListing(data.listing)
+            setDesiredModel(data.listing.model)
+            setDesiredCapacity(data.listing.capacity)
+            setMinCondition(data.listing.condition)
+            setCurrentStep(1)
+          }
+        })
+        .catch(err => console.error("[v0] Error fetching listing:", err))
+        .finally(() => setLoadingListing(false))
     }
   }, [listingId])
 
@@ -119,10 +143,8 @@ export default function ExchangePage() {
     }
   }
 
-  const handleSubmit = () => {
-    const listing = listingId ? mockListings.find((l) => l.id === listingId) : null
-
-    if (!listing) {
+  const handleSubmit = async () => {
+    if (!targetListing) {
       alert("Erreur: Annonce introuvable")
       return
     }
@@ -146,17 +168,29 @@ export default function ExchangePage() {
       maxBudgetCFA: maxBudget ? Number.parseInt(maxBudget) : undefined,
     }
 
-    const message = formatExchangeMessage(listing, exchangeDetails, clientName, clientPhone, clientCity)
-    const whatsappUrl = buildWhatsAppLink(listing.seller?.whatsapp || "", message)
+    // Create lead in database
+    try {
+      await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listing_id: targetListing.id,
+          seller_id: targetListing.sellerId,
+          type: 'EXCHANGE',
+          client_name: clientName,
+          client_email: clientEmail || null,
+          client_phone: clientPhone,
+          client_city: clientCity,
+          message: `Demande d'echange pour ${targetListing.title}`,
+          exchange_details: exchangeDetails,
+        }),
+      })
+    } catch (err) {
+      console.error("[v0] Error creating lead:", err)
+    }
 
-    console.log("[v0] Exchange lead created:", {
-      listingId,
-      exchangeDetails,
-      clientName,
-      clientPhone,
-      clientCity,
-      photosCount: Object.keys(currentPhotos).length,
-    })
+    const message = formatExchangeMessage(targetListing as any, exchangeDetails, clientName, clientPhone, clientCity)
+    const whatsappUrl = buildWhatsAppLink(targetListing.seller?.whatsapp || "", message)
 
     window.open(whatsappUrl, "_blank")
   }
