@@ -1,70 +1,7 @@
 "use client"
 
+import { createClient } from "@/lib/supabase/client"
 import type { User, UserRole } from "./types"
-
-// Mock users database (in production, this would be in a real database)
-const mockUsers: User[] = [
-  {
-    id: "u1",
-    email: "afcoms@sentech.sn",
-    password: "afcoms2025",
-    name: "AfComs",
-    role: "SELLER",
-    phone: "+221 77 876 01 23",
-    city: "Dakar",
-    createdAt: new Date("2023-01-15"),
-  },
-  {
-    id: "u2",
-    email: "malick@sentech.sn",
-    password: "malick2025",
-    name: "Malick Commerce & services",
-    role: "SELLER",
-    phone: "+221 78 361 48 59",
-    city: "Dakar",
-    createdAt: new Date("2023-03-20"),
-  },
-  {
-    id: "u3",
-    email: "diwane@sentech.sn",
-    password: "diwane2025",
-    name: "Diwane Apple",
-    role: "SELLER",
-    phone: "+221775723147",
-    city: "Dakar",
-    createdAt: new Date("2023-05-10"),
-  },
-  {
-    id: "u4",
-    email: "senstore@sentech.sn",
-    password: "senstore2025",
-    name: "Sen Store Phone",
-    role: "SELLER",
-    phone: "+221778464833",
-    city: "Dakar",
-    createdAt: new Date("2023-07-01"),
-  },
-  {
-    id: "u5",
-    email: "admin@sentech.sn",
-    password: "admin2025",
-    name: "Admin SenTech",
-    role: "ADMIN",
-    phone: "+221773456789",
-    city: "Dakar",
-    createdAt: new Date("2023-01-01"),
-  },
-  {
-    id: "u6",
-    email: "client@test.com",
-    password: "client2025",
-    name: "Client Test",
-    role: "CLIENT",
-    phone: "+221771234567",
-    city: "Dakar",
-    createdAt: new Date("2024-01-01"),
-  },
-]
 
 const AUTH_STORAGE_KEY = "sentech_auth"
 
@@ -74,7 +11,40 @@ export interface AuthSession {
   expiresAt: number
 }
 
-// Get current session from localStorage
+// Get current session from Supabase
+export async function getSessionAsync(): Promise<AuthSession | null> {
+  const supabase = createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  if (!session) return null
+  
+  // Get user profile from profiles table
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', session.user.id)
+    .single()
+  
+  if (!profile) return null
+  
+  const user: User = {
+    id: session.user.id,
+    email: session.user.email || '',
+    name: profile.name || session.user.user_metadata?.name || '',
+    phone: profile.phone || '',
+    city: profile.city || 'Dakar',
+    role: (profile.role as UserRole) || 'CLIENT',
+    createdAt: new Date(profile.created_at),
+  }
+  
+  return {
+    user,
+    token: session.access_token,
+    expiresAt: session.expires_at ? session.expires_at * 1000 : Date.now() + 7 * 24 * 60 * 60 * 1000,
+  }
+}
+
+// Sync version for backward compatibility (reads from localStorage cache)
 export function getSession(): AuthSession | null {
   if (typeof window === "undefined") return null
 
@@ -84,7 +54,6 @@ export function getSession(): AuthSession | null {
 
     const session: AuthSession = JSON.parse(stored)
 
-    // Check if session is expired
     if (Date.now() > session.expiresAt) {
       localStorage.removeItem(AUTH_STORAGE_KEY)
       return null
@@ -96,7 +65,7 @@ export function getSession(): AuthSession | null {
   }
 }
 
-// Save session to localStorage
+// Save session to localStorage (for sync access)
 export function saveSession(session: AuthSession): void {
   if (typeof window === "undefined") return
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
@@ -108,39 +77,139 @@ export function clearSession(): void {
   localStorage.removeItem(AUTH_STORAGE_KEY)
 }
 
-// Login with email and password
-export function login(email: string, password: string): { success: boolean; session?: AuthSession; error?: string } {
-  console.log("[v0] Login attempt:", { email })
-
-  // Find user by email
-  const user = mockUsers.find((u) => u.email === email)
-
-  if (!user) {
-    return { success: false, error: "Email ou mot de passe incorrect" }
+// Login with email and password using Supabase Auth
+export async function loginAsync(email: string, password: string): Promise<{ success: boolean; session?: AuthSession; error?: string }> {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+  
+  if (error) {
+    return { success: false, error: error.message === 'Invalid login credentials' ? 'Email ou mot de passe incorrect' : error.message }
   }
-
-  // Verify password (in production, use bcrypt.compare)
-  if (user.password !== password) {
-    return { success: false, error: "Email ou mot de passe incorrect" }
+  
+  if (!data.session) {
+    return { success: false, error: 'Erreur de connexion' }
   }
-
-  // Create session (expires in 7 days)
+  
+  // Get user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', data.user.id)
+    .single()
+  
+  const user: User = {
+    id: data.user.id,
+    email: data.user.email || '',
+    name: profile?.name || data.user.user_metadata?.name || '',
+    phone: profile?.phone || '',
+    city: profile?.city || 'Dakar',
+    role: (profile?.role as UserRole) || 'CLIENT',
+    createdAt: new Date(profile?.created_at || data.user.created_at),
+  }
+  
   const session: AuthSession = {
-    user: {
-      ...user,
-      password: undefined as any, // Don't include password in session
-    },
-    token: `mock_token_${user.id}_${Date.now()}`,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    user,
+    token: data.session.access_token,
+    expiresAt: data.session.expires_at ? data.session.expires_at * 1000 : Date.now() + 7 * 24 * 60 * 60 * 1000,
   }
-
+  
   saveSession(session)
-  console.log("[v0] Login successful:", { userId: user.id, role: user.role })
-
+  
   return { success: true, session }
 }
 
-// Register new user
+// Sync login wrapper
+export function login(email: string, password: string): { success: boolean; session?: AuthSession; error?: string } {
+  // This will be called but we need to handle async
+  // For now, return a pending state - the actual login should use loginAsync
+  console.warn('[v0] Use loginAsync instead of login for Supabase auth')
+  return { success: false, error: 'Utilisez loginAsync' }
+}
+
+// Register new user with Supabase Auth
+export async function registerAsync(data: {
+  email: string
+  password: string
+  name: string
+  phone: string
+  city?: string
+  isSeller?: boolean
+}): Promise<{ success: boolean; session?: AuthSession; error?: string }> {
+  const supabase = createClient()
+  
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email: data.email,
+    password: data.password,
+    options: {
+      emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
+      data: {
+        name: data.name,
+        phone: data.phone,
+        city: data.city || 'Dakar',
+        role: data.isSeller ? 'SELLER' : 'CLIENT',
+      },
+    },
+  })
+  
+  if (authError) {
+    if (authError.message.includes('already registered')) {
+      return { success: false, error: 'Cet email est déjà utilisé' }
+    }
+    return { success: false, error: authError.message }
+  }
+  
+  if (!authData.user) {
+    return { success: false, error: 'Erreur lors de la création du compte' }
+  }
+  
+  // The profile will be created by a database trigger
+  // But we can also try to create it manually if needed
+  const role: UserRole = data.isSeller ? 'SELLER' : 'CLIENT'
+  
+  // Try to insert profile (trigger might have done it already)
+  await supabase.from('profiles').upsert({
+    id: authData.user.id,
+    email: data.email,
+    name: data.name,
+    phone: data.phone,
+    city: data.city || 'Dakar',
+    role: role,
+  }, { onConflict: 'id' })
+  
+  // If email confirmation is required, we won't have a session yet
+  if (!authData.session) {
+    return { 
+      success: true, 
+      error: 'Veuillez vérifier votre email pour confirmer votre compte'
+    }
+  }
+  
+  const user: User = {
+    id: authData.user.id,
+    email: data.email,
+    name: data.name,
+    phone: data.phone,
+    city: data.city || 'Dakar',
+    role: role,
+    createdAt: new Date(),
+  }
+  
+  const session: AuthSession = {
+    user,
+    token: authData.session.access_token,
+    expiresAt: authData.session.expires_at ? authData.session.expires_at * 1000 : Date.now() + 7 * 24 * 60 * 60 * 1000,
+  }
+  
+  saveSession(session)
+  
+  return { success: true, session }
+}
+
+// Sync register wrapper
 export function register(data: {
   email: string
   password: string
@@ -149,47 +218,23 @@ export function register(data: {
   city?: string
   isSeller?: boolean
 }): { success: boolean; session?: AuthSession; error?: string } {
-  console.log("[v0] Register attempt:", { email: data.email, isSeller: data.isSeller })
-
-  // Check if email already exists
-  if (mockUsers.find((u) => u.email === data.email)) {
-    return { success: false, error: "Cet email est déjà utilisé" }
-  }
-
-  // Create new user
-  const newUser: User = {
-    id: `u${mockUsers.length + 1}`,
-    email: data.email,
-    password: data.password, // In production, hash with bcrypt
-    name: data.name,
-    role: data.isSeller ? "SELLER" : "CLIENT",
-    phone: data.phone,
-    city: data.city || "Dakar",
-    createdAt: new Date(),
-  }
-
-  mockUsers.push(newUser)
-
-  // Create session
-  const session: AuthSession = {
-    user: {
-      ...newUser,
-      password: undefined as any,
-    },
-    token: `mock_token_${newUser.id}_${Date.now()}`,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-  }
-
-  saveSession(session)
-  console.log("[v0] Registration successful:", { userId: newUser.id, role: newUser.role })
-
-  return { success: true, session }
+  console.warn('[v0] Use registerAsync instead of register for Supabase auth')
+  return { success: false, error: 'Utilisez registerAsync' }
 }
 
-// Logout
-export function logout(): void {
-  console.log("[v0] Logout")
+// Logout using Supabase Auth
+export async function logoutAsync(): Promise<void> {
+  const supabase = createClient()
+  await supabase.auth.signOut()
   clearSession()
+}
+
+// Sync logout wrapper
+export function logout(): void {
+  clearSession()
+  // Also sign out from Supabase asynchronously
+  const supabase = createClient()
+  supabase.auth.signOut()
 }
 
 // Check if user is authenticated
@@ -197,7 +242,7 @@ export function isAuthenticated(): boolean {
   return getSession() !== null
 }
 
-// Get current user
+// Get current user (sync from cache)
 export function getCurrentUser(): User | null {
   const session = getSession()
   return session?.user || null
@@ -209,32 +254,51 @@ export function hasRole(role: UserRole): boolean {
   return user?.role === role
 }
 
-export function updateUser(updatedUser: User, newPassword?: string): void {
+// Update user profile
+export async function updateUserAsync(updatedUser: User, newPassword?: string): Promise<void> {
+  const supabase = createClient()
+  
+  // Update profile in database
+  await supabase
+    .from('profiles')
+    .update({
+      name: updatedUser.name,
+      phone: updatedUser.phone,
+      city: updatedUser.city,
+    })
+    .eq('id', updatedUser.id)
+  
+  // Update password if provided
+  if (newPassword) {
+    await supabase.auth.updateUser({ password: newPassword })
+  }
+  
+  // Update local cache
   const session = getSession()
-  if (!session) return
-
-  // Find and update user in mock database
-  const userIndex = mockUsers.findIndex((u) => u.id === updatedUser.id)
-  if (userIndex !== -1) {
-    mockUsers[userIndex] = {
-      ...mockUsers[userIndex],
-      ...updatedUser,
-      password: newPassword || mockUsers[userIndex].password,
-    }
-
-    // Update session
+  if (session) {
     const newSession: AuthSession = {
       ...session,
-      user: {
-        ...updatedUser,
-        password: undefined as any,
-      },
+      user: updatedUser,
     }
     saveSession(newSession)
-
-    // Trigger auth change event
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("auth-change"))
-    }
   }
+  
+  // Trigger auth change event
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth-change"))
+  }
+}
+
+// Sync update wrapper
+export function updateUser(updatedUser: User, newPassword?: string): void {
+  updateUserAsync(updatedUser, newPassword)
+}
+
+// Initialize auth state from Supabase on app load
+export async function initializeAuth(): Promise<AuthSession | null> {
+  const session = await getSessionAsync()
+  if (session) {
+    saveSession(session)
+  }
+  return session
 }

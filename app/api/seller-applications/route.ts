@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
 
 export async function POST(request: Request) {
   try {
@@ -11,27 +12,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // In a real app, this would save to database
-    const application = {
-      id: `app-${Date.now()}`,
-      userId: userId || `user-${Date.now()}`,
-      shopName,
-      whatsapp,
-      city,
-      address,
-      description,
-      proofPhotos: proofPhotos || [],
-      status: "PENDING_REVIEW",
-      createdAt: new Date(),
+    const supabase = await createClient()
+
+    const { data: application, error } = await supabase
+      .from('seller_applications')
+      .insert({
+        user_id: userId,
+        shop_name: shopName,
+        whatsapp,
+        city,
+        address,
+        description,
+        proof_photos: proofPhotos || [],
+        status: 'PENDING_REVIEW',
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error("[v0] Error creating seller application:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    console.log("[v0] Seller application created:", application)
+    // Transform to match TypeScript types
+    const transformedApplication = {
+      id: application.id,
+      userId: application.user_id,
+      shopName: application.shop_name,
+      whatsapp: application.whatsapp,
+      city: application.city,
+      address: application.address,
+      description: application.description,
+      proofPhotos: application.proof_photos || [],
+      status: application.status,
+      createdAt: new Date(application.created_at),
+    }
 
-    // In a real app, you might also:
-    // - Send notification to admin
-    // - Send confirmation email to applicant
-
-    return NextResponse.json({ success: true, application }, { status: 201 })
+    return NextResponse.json({ success: true, application: transformedApplication }, { status: 201 })
   } catch (error) {
     console.error("[v0] Error creating seller application:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -40,20 +57,35 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    // In a real app, this would query the database
-    // For now, return mock data
-    const mockApplications = [
-      {
-        id: "1",
-        shopName: "Tech Store Dakar",
-        whatsapp: "+221 77 999 88 77",
-        city: "Dakar",
-        status: "PENDING_REVIEW",
-        createdAt: new Date("2025-01-28"),
-      },
-    ]
+    const supabase = await createClient()
 
-    return NextResponse.json({ applications: mockApplications })
+    const { data: applications, error } = await supabase
+      .from('seller_applications')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error("[v0] Error fetching applications:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // Transform to match TypeScript types
+    const transformedApplications = applications?.map(app => ({
+      id: app.id,
+      userId: app.user_id,
+      shopName: app.shop_name,
+      whatsapp: app.whatsapp,
+      city: app.city,
+      address: app.address,
+      description: app.description,
+      proofPhotos: app.proof_photos || [],
+      status: app.status,
+      rejectionReason: app.rejection_reason,
+      createdAt: new Date(app.created_at),
+      reviewedAt: app.reviewed_at ? new Date(app.reviewed_at) : undefined,
+    })) || []
+
+    return NextResponse.json({ applications: transformedApplications })
   } catch (error) {
     console.error("[v0] Error fetching applications:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

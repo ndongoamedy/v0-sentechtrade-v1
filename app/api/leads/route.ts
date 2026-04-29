@@ -1,42 +1,59 @@
 import { NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
 import type { LeadType, ExchangeDetails } from "@/lib/types"
 
 export async function POST(request: Request) {
   try {
     const body = await request.json()
 
-    const { type, listingId, sellerId, clientName, clientEmail, clientPhone, clientCity, message, exchangeDetails } =
-      body
+    const { type, listingId, sellerId, clientName, clientEmail, clientPhone, clientCity, message, exchangeDetails } = body
 
     // Validate required fields
     if (!type || !listingId || !sellerId || !clientName || !clientPhone || !clientCity) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // In a real app, this would save to database
-    const lead = {
-      id: `lead-${Date.now()}`,
-      type: type as LeadType,
-      listingId,
-      sellerId,
-      clientName,
-      clientEmail,
-      clientPhone,
-      clientCity,
-      message,
-      exchangeDetails: exchangeDetails as ExchangeDetails | undefined,
-      status: "NEW",
-      createdAt: new Date(),
+    const supabase = await createClient()
+
+    const { data: lead, error } = await supabase
+      .from('leads')
+      .insert({
+        type: type as LeadType,
+        listing_id: listingId,
+        seller_id: sellerId,
+        client_name: clientName,
+        client_email: clientEmail,
+        client_phone: clientPhone,
+        client_city: clientCity,
+        message,
+        exchange_details: exchangeDetails as ExchangeDetails | undefined,
+        status: 'NEW',
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error("[v0] Error creating lead:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    console.log("[v0] Lead created:", lead)
+    // Transform to match TypeScript types
+    const transformedLead = {
+      id: lead.id,
+      type: lead.type,
+      listingId: lead.listing_id,
+      sellerId: lead.seller_id,
+      clientName: lead.client_name,
+      clientEmail: lead.client_email,
+      clientPhone: lead.client_phone,
+      clientCity: lead.client_city,
+      message: lead.message,
+      exchangeDetails: lead.exchange_details,
+      status: lead.status,
+      createdAt: new Date(lead.created_at),
+    }
 
-    // In a real app, you might also:
-    // - Send notification to seller
-    // - Send confirmation email to client
-    // - Track analytics
-
-    return NextResponse.json({ success: true, lead }, { status: 201 })
+    return NextResponse.json({ success: true, lead: transformedLead }, { status: 201 })
   } catch (error) {
     console.error("[v0] Error creating lead:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -49,34 +66,56 @@ export async function GET(request: Request) {
     const sellerId = searchParams.get("sellerId")
     const listingId = searchParams.get("listingId")
 
-    // In a real app, this would query the database
-    // For now, return mock data
-    const mockLeads = [
-      {
-        id: "1",
-        type: "BUY",
-        listingId: "1",
-        sellerId: "s1",
-        clientName: "Amadou Diop",
-        clientPhone: "+221 77 123 45 67",
-        clientCity: "Dakar",
-        message: "Interested in buying",
-        status: "NEW",
-        createdAt: new Date("2025-01-28"),
-      },
-    ]
+    const supabase = await createClient()
 
-    let filteredLeads = mockLeads
+    let query = supabase
+      .from('leads')
+      .select(`
+        *,
+        listing:listings(*),
+        seller:sellers(*)
+      `)
+      .order('created_at', { ascending: false })
 
     if (sellerId) {
-      filteredLeads = filteredLeads.filter((l) => l.sellerId === sellerId)
+      query = query.eq('seller_id', sellerId)
     }
 
     if (listingId) {
-      filteredLeads = filteredLeads.filter((l) => l.listingId === listingId)
+      query = query.eq('listing_id', listingId)
     }
 
-    return NextResponse.json({ leads: filteredLeads })
+    const { data: leads, error } = await query
+
+    if (error) {
+      console.error("[v0] Error fetching leads:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // Transform to match TypeScript types
+    const transformedLeads = leads?.map(lead => ({
+      id: lead.id,
+      type: lead.type,
+      listingId: lead.listing_id,
+      sellerId: lead.seller_id,
+      listing: lead.listing ? {
+        id: lead.listing.id,
+        title: lead.listing.title,
+        model: lead.listing.model,
+        capacity: lead.listing.capacity,
+        priceCFA: lead.listing.price_cfa,
+      } : undefined,
+      clientName: lead.client_name,
+      clientEmail: lead.client_email,
+      clientPhone: lead.client_phone,
+      clientCity: lead.client_city,
+      message: lead.message,
+      exchangeDetails: lead.exchange_details,
+      status: lead.status,
+      createdAt: new Date(lead.created_at),
+    })) || []
+
+    return NextResponse.json({ leads: transformedLeads })
   } catch (error) {
     console.error("[v0] Error fetching leads:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -6,7 +6,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
-import { login, register } from "@/lib/auth"
+import { loginAsync, registerAsync } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,66 +17,77 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("")
   const [isSeller, setIsSeller] = useState(false)
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccess("")
     setLoading(true)
 
-    if (authMode === "login") {
-      // Login
-      const result = login(email, password)
+    try {
+      if (authMode === "login") {
+        // Login
+        const result = await loginAsync(email, password)
 
-      if (result.success && result.session) {
-        console.log("[v0] Login successful, redirecting...")
-        // Dispatch custom event to update header
-        window.dispatchEvent(new Event("auth-change"))
+        if (result.success && result.session) {
+          // Dispatch custom event to update header
+          window.dispatchEvent(new Event("auth-change"))
 
-        // Redirect based on role
-        const user = result.session.user
-        if (user.role === "ADMIN") {
-          router.push("/admin")
-        } else if (user.role === "SELLER") {
-          router.push("/seller/dashboard")
+          // Redirect based on role
+          const user = result.session.user
+          if (user.role === "ADMIN") {
+            router.push("/admin")
+          } else if (user.role === "SELLER") {
+            router.push("/seller/dashboard")
+          } else {
+            router.push("/")
+          }
         } else {
-          router.push("/")
+          setError(result.error || "Erreur de connexion")
+          setLoading(false)
         }
       } else {
-        setError(result.error || "Erreur de connexion")
-        setLoading(false)
-      }
-    } else {
-      // Register
-      if (!name || !phone) {
-        setError("Veuillez remplir tous les champs")
-        setLoading(false)
-        return
-      }
-
-      const result = register({
-        email,
-        password,
-        name,
-        phone,
-        isSeller,
-      })
-
-      if (result.success && result.session) {
-        console.log("[v0] Registration successful, redirecting...")
-        // Dispatch custom event to update header
-        window.dispatchEvent(new Event("auth-change"))
-
-        // If seller, redirect to application
-        if (isSeller) {
-          router.push("/seller/apply")
-        } else {
-          router.push("/")
+        // Register
+        if (!name || !phone) {
+          setError("Veuillez remplir tous les champs")
+          setLoading(false)
+          return
         }
-      } else {
-        setError(result.error || "Erreur d'inscription")
-        setLoading(false)
+
+        const result = await registerAsync({
+          email,
+          password,
+          name,
+          phone,
+          isSeller,
+        })
+
+        if (result.success) {
+          if (result.session) {
+            // Dispatch custom event to update header
+            window.dispatchEvent(new Event("auth-change"))
+
+            // If seller, redirect to application
+            if (isSeller) {
+              router.push("/seller/apply")
+            } else {
+              router.push("/")
+            }
+          } else {
+            // Email confirmation required
+            setSuccess(result.error || "Veuillez vérifier votre email pour confirmer votre compte")
+            setLoading(false)
+          }
+        } else {
+          setError(result.error || "Erreur d'inscription")
+          setLoading(false)
+        }
       }
+    } catch (err) {
+      setError("Une erreur inattendue s'est produite")
+      setLoading(false)
     }
   }
 
@@ -97,6 +108,7 @@ export default function LoginPage() {
               onClick={() => {
                 setAuthMode("login")
                 setError("")
+                setSuccess("")
               }}
               className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
                 authMode === "login" ? "bg-white shadow-sm text-gray-900" : "text-gray-600"
@@ -108,6 +120,7 @@ export default function LoginPage() {
               onClick={() => {
                 setAuthMode("register")
                 setError("")
+                setSuccess("")
               }}
               className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
                 authMode === "register" ? "bg-white shadow-sm text-gray-900" : "text-gray-600"
@@ -121,36 +134,8 @@ export default function LoginPage() {
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
           )}
 
-          {authMode === "login" && (
-            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs">
-              <p className="font-bold text-blue-900 mb-2">🔑 Comptes de test disponibles :</p>
-
-              <div className="space-y-2">
-                <div>
-                  <p className="font-semibold text-blue-800">👤 Client :</p>
-                  <p className="text-blue-700 ml-2">client@test.com / client2025</p>
-                </div>
-
-                <div>
-                  <p className="font-semibold text-blue-800">🏪 Vendeurs :</p>
-                  <div className="ml-2 space-y-1 text-blue-700">
-                    <p>• afcoms@sentech.sn / afcoms2025</p>
-                    <p>• malick@sentech.sn / malick2025</p>
-                    <p>• diwane@sentech.sn / diwane2025</p>
-                    <p>• senstore@sentech.sn / senstore2025</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="font-semibold text-blue-800">👨‍💼 Admin :</p>
-                  <p className="text-blue-700 ml-2">admin@sentech.sn / admin2025</p>
-                </div>
-
-                <p className="text-blue-600 text-[10px] mt-2 italic">
-                  💡 Visiteur : Pas besoin de connexion pour naviguer sur le site
-                </p>
-              </div>
-            </div>
+          {success && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">{success}</div>
           )}
 
           {/* Form */}
@@ -202,7 +187,8 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="••••••••"
+                placeholder="********"
+                minLength={6}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -217,7 +203,7 @@ export default function LoginPage() {
                   className="w-5 h-5 text-blue-600 rounded mt-0.5"
                 />
                 <label htmlFor="seller" className="text-sm font-medium cursor-pointer text-gray-900">
-                  Je souhaite m'inscrire en tant que vendeur
+                  Je souhaite m&apos;inscrire en tant que vendeur
                 </label>
               </div>
             )}
@@ -235,7 +221,7 @@ export default function LoginPage() {
             <p className="text-center text-sm text-gray-600 mt-4">
               Pas encore de compte ?{" "}
               <button onClick={() => setAuthMode("register")} className="text-blue-600 hover:text-blue-700 font-medium">
-                S'inscrire
+                S&apos;inscrire
               </button>
             </p>
           )}

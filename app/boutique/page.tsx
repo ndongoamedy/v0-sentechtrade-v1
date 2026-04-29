@@ -1,11 +1,14 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { ProductCard } from "@/components/product-card"
-import { mockListings, iPhoneModels, capacities, conditions, cities } from "@/lib/data"
-import type { iPhoneModel, Capacity, Condition } from "@/lib/types"
+import { iPhoneModels, capacities, conditions, cities } from "@/lib/data"
+import type { iPhoneModel, Capacity, Condition, Listing } from "@/lib/types"
+import useSWR from "swr"
+
+const fetcher = (url: string) => fetch(url).then(res => res.json())
 
 export default function BoutiquePage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -17,9 +20,14 @@ export default function BoutiquePage() {
   const [maxPrice, setMaxPrice] = useState("")
   const [sortBy, setSortBy] = useState<"recent" | "price-asc" | "price-desc">("recent")
 
+  // Fetch listings from API
+  const { data, error, isLoading } = useSWR<{ listings: Listing[] }>('/api/listings', fetcher)
+  
+  const listings = data?.listings || []
+
   // Filter and sort listings
   const filteredListings = useMemo(() => {
-    let filtered = mockListings.filter((l) => l.status === "PUBLISHED")
+    let filtered = [...listings]
 
     // Search query
     if (searchQuery) {
@@ -61,11 +69,11 @@ export default function BoutiquePage() {
     } else if (sortBy === "price-desc") {
       filtered.sort((a, b) => b.priceCFA - a.priceCFA)
     } else {
-      filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     }
 
     return filtered
-  }, [searchQuery, selectedModels, selectedCapacities, selectedConditions, selectedCities, minPrice, maxPrice, sortBy])
+  }, [listings, searchQuery, selectedModels, selectedCapacities, selectedConditions, selectedCities, minPrice, maxPrice, sortBy])
 
   const toggleFilter = <T,>(value: T, selected: T[], setSelected: (values: T[]) => void) => {
     if (selected.includes(value)) {
@@ -92,7 +100,7 @@ export default function BoutiquePage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Boutique</h1>
-          <p className="text-gray-600">Découvrez notre sélection d'iPhones vérifiés</p>
+          <p className="text-gray-600">Découvrez notre sélection d&apos;iPhones vérifiés</p>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-8">
@@ -220,8 +228,16 @@ export default function BoutiquePage() {
             {/* Sort and count */}
             <div className="flex items-center justify-between mb-6">
               <p className="text-gray-600">
-                <span className="font-semibold text-gray-900">{filteredListings.length}</span> annonce
-                {filteredListings.length > 1 ? "s" : ""} trouvée{filteredListings.length > 1 ? "s" : ""}
+                {isLoading ? (
+                  "Chargement..."
+                ) : error ? (
+                  "Erreur de chargement"
+                ) : (
+                  <>
+                    <span className="font-semibold text-gray-900">{filteredListings.length}</span> annonce
+                    {filteredListings.length > 1 ? "s" : ""} trouvée{filteredListings.length > 1 ? "s" : ""}
+                  </>
+                )}
               </p>
               <select
                 value={sortBy}
@@ -235,7 +251,17 @@ export default function BoutiquePage() {
             </div>
 
             {/* Grid */}
-            {filteredListings.length > 0 ? (
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="bg-white rounded-xl border p-4 animate-pulse">
+                    <div className="bg-gray-200 h-48 rounded-lg mb-4"></div>
+                    <div className="bg-gray-200 h-4 rounded mb-2"></div>
+                    <div className="bg-gray-200 h-4 rounded w-2/3"></div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredListings.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredListings.map((listing) => (
                   <ProductCard key={listing.id} listing={listing} />
